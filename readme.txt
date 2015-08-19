@@ -32,9 +32,9 @@ turns into:
 
 int foo(int bar)
 {
-   FUNCTION_ENTRY("bar");
-   if (bar) { FUNCTION_LEAVE("bar"); return 7; }
-   { FUNCTION_LEAVE("bar"); return 3; }
+   FUNCTION_ENTRY("foo");
+   if (bar) { FUNCTION_LEAVE("foo"); return 7; }
+   { FUNCTION_LEAVE("foo"); return 3; }
 }
 
 After that, you can just define the FUNCTION_ENTRY and FUNCTION_LEAVE
