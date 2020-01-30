@@ -1,4 +1,4 @@
-/* Interjector 1.0
+/* Interjector 1.1
 * C code instrumentation tool
 */
 
@@ -14,9 +14,12 @@ int gVerboseMode = 0;
 int gQuietMode = 0;
 // Test mode: Whether to write stuff to disk at all
 int gTestMode = 0;
-
 // Mode for testing the interjection on this source
 int gInterjectMode = 0;
+// Mode for adding code block level on leave
+int gLeaveLevels = 0;
+// Mode for outputting #line primitives
+int gLinePrims = 1;
 
 // Other global gSourceData
 
@@ -83,6 +86,13 @@ int checkForReturn(char *aDataPointer)
     return 0; // No match
 }
 
+void writeLineStatement(int lineno)
+{
+	if (gOutputFile && gLinePrims)
+	{
+		fprintf(gOutputFile, "#line %d\r\n", lineno);
+	}
+}
 
 // Do the actual work
 void scan()
@@ -97,13 +107,20 @@ void scan()
     int functionReturned = 0; // Has function returned (for void funcs and others without last-line return)
     int preprocessor = 0; // Preprocessor directive
     int returnBlock = 0;  // Within return block (return ... ;)
+	int lineno = 1;
 
     // prefix the include file
     writeString("#include \"interject.h\"\r\n");
+	writeLineStatement(lineno);
 
     while (position < gSourceDataLength)
     {
-        if (commentBlock)
+		if (gSourceData[position] == '\n')
+		{
+			lineno++;
+		}
+		
+		if (commentBlock)
         {
             // In a comment block - look for the end of the comment block..
             if (gSourceData[position] == '/' && gSourceData[position - 1] == '*')
@@ -116,9 +133,9 @@ void scan()
             if (lineComment)
             {
                 // In a line comment block.. ends when line ends
-                if (gSourceData[position] == '\n' || gSourceData[position] == '\r')
+                if (gSourceData[position] == '\n')
                 {
-                    lineComment = 0;
+				    lineComment = 0;
                 }
             }
             else
@@ -177,7 +194,7 @@ void scan()
                                 {
                                     returnBlock = 1;
                                     functionReturned = 1;
-                                    writeString("{ FUNCTION_LEAVE(\"");
+                                    writeString("{ INTERJECTOR_FUNCTION_LEAVE(\"");
                                     int i = 1;
                                     while (gSourceData[lastFunctionNamePosition + i] != '(')
                                     {
@@ -185,6 +202,18 @@ void scan()
                                         i++;
                                     }
                                     writeString("\");");
+									if (gLeaveLevels && gOutputFile)
+									{
+										writeString("INTERJECTOR_FUNCTION_LEAVE_LEVELS(\"");
+										int i = 1;
+										while (gSourceData[lastFunctionNamePosition + i] != '(')
+										{
+											writeByte(gSourceData[lastFunctionNamePosition + i]);
+											i++;
+										}
+										fprintf(gOutputFile, "\", %d", codeBlock);
+										writeString(");");
+									}
                                 }
                             }
                         }
@@ -250,14 +279,14 @@ void scan()
             }
         }
 
-        if (gSourceData[position] == '}' && codeBlock == 0 && function)
+        if (gSourceData[position] == '}' && codeBlock == 0 && function && !commentBlock && !lineComment && !quoteBlock)
         {
             // If function ends, we need to check if we already handled the return case, and
             // if not, write a leave macro here.
             function = 0;
             if (!functionReturned)
             {
-                writeString("FUNCTION_LEAVE(\"");
+                writeString("INTERJECTOR_FUNCTION_LEAVE(\"");
                 int i = 1;
                 while (gSourceData[lastFunctionNamePosition + i] != '(')
                 {
@@ -265,23 +294,36 @@ void scan()
                     i++;
                 }
                 writeString("\");\r\n");
-            }
+				if (gLeaveLevels && gOutputFile)
+				{
+					writeString("INTERJECTOR_FUNCTION_LEAVE_LEVELS(\"");
+					int i = 1;
+					while (gSourceData[lastFunctionNamePosition + i] != '(')
+					{
+						writeByte(gSourceData[lastFunctionNamePosition + i]);
+						i++;
+					}
+					fprintf(gOutputFile, "\", %d", codeBlock);
+					writeString(");\r\n");
+				}
+				writeLineStatement(lineno);
+			}
         }
 
         // Write source out.
         writeByte(gSourceData[position]);
 
         // Did we hit the end of a return block?
-        if (gSourceData[position] == ';' && returnBlock)
+        if (gSourceData[position] == ';' && returnBlock && !commentBlock && !lineComment && !quoteBlock)
         {
             writeString("}");
             returnBlock = 0;
         }
 
         // Did we find the start of a function?
-        if (gSourceData[position] == '{' && codeBlock == 1 && function)
+        if (gSourceData[position] == '{' && codeBlock == 1 && function && !commentBlock && !lineComment && !quoteBlock)
         {
-            writeString("\r\nFUNCTION_ENTRY(\"");
+            writeString("\r\nINTERJECTOR_FUNCTION_ENTRY(\"");
             int i = 1;
             while (gSourceData[lastFunctionNamePosition+i] != '(')
             {
@@ -302,8 +344,7 @@ void scan()
                 i++;
             }
             writeString("\");\r\n");
-
-
+			writeLineStatement(lineno);
         }
         position++;  
     }
@@ -351,7 +392,7 @@ void scan()
 // Print out program header
 void header()
 {
-    printf("Interjector v1.0 Copyright (c) 2007 Jari Komppa\nhttp://iki.fi/sol/\n");
+    printf("Interjector v1.1 Copyright (c) 2007-2020 Jari Komppa\nhttp://iki.fi/sol/\n");
 }
 
 
@@ -371,7 +412,7 @@ void main(int parc, char **pars)
             {
             case 'i':
             case 'I': gInterjectMode = 1;
-#ifndef FUNCTION_ENTRY
+#ifndef INTERJECTOR_FUNCTION_ENTRY
                 printf("\nNote: Interject test mode is useless unless"
                        "\ninterjector has been run through interjector.\n\n");
 #endif
@@ -385,6 +426,12 @@ void main(int parc, char **pars)
             case 'v':
             case 'V': gVerboseMode = 1;
                 break;
+			case 'l':
+			case 'L': gLeaveLevels = 1;
+				break;
+			case 'n':
+			case 'N': gLinePrims = 0;
+				break;
             default:
                 printf("Unknown flag \"%s\". Run without parameters for help.\n", pars[i]);
                 exit(-1);
@@ -430,6 +477,8 @@ void main(int parc, char **pars)
             "\n-t - Test - Do all the work but don't actually write to disk"
             "\n     (Implies verbose)"
             "\n-i - Interject printout (testing, implies quiet mode)"
+			"\n-l - insert INTERJECTOR_FUNCTION_LEAVE_LEVELS macros"
+			"\n-n - don't insert #line primitives"
             "\n");
         return;
     }
@@ -441,7 +490,11 @@ void main(int parc, char **pars)
     }
 
     // Open source..
-    f = fopen(gSourceFilename, "rb");
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+	fopen_s(&f, gSourceFilename, "rb");
+#else
+	f = fopen(gSourceFilename, "rb");
+#endif
 
     if (f == NULL)
     {
@@ -517,7 +570,11 @@ void main(int parc, char **pars)
         fn = targetFilename;
     }
 
-    gOutputFile = fopen(fn, "wb");
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+	fopen_s(&gOutputFile, fn, "wb");
+#else
+	gOutputFile = fopen(fn, "wb");
+#endif
 
     // Do another pass with the target file open
     scan();

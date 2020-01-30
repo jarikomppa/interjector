@@ -32,14 +32,14 @@ turns into:
 
 int foo(int bar)
 {
-   FUNCTION_ENTRY("foo");
-   if (bar) { FUNCTION_LEAVE("foo"); return 7; }
-   { FUNCTION_LEAVE("foo"); return 3; }
+   INTERJECTOR_FUNCTION_ENTRY("foo");
+   if (bar) { INTERJECTOR_FUNCTION_LEAVE("foo"); return 7; }
+   { INTERJECTOR_FUNCTION_LEAVE("foo"); return 3; }
 }
 
-After that, you can just define the FUNCTION_ENTRY and FUNCTION_LEAVE
-macros to do whatever you want. There's an example interject.h that
-gives some idea what you can do with it.
+After that, you can just define the INTERJECTOR_FUNCTION_ENTRY and 
+INTERJECTOR_FUNCTION_LEAVE macros to do whatever you want. There's 
+an example interject.h that gives some idea what you can do with it.
 
 Note that the code I interject is generally rather c-like but compiled
 with a c++ compiler, so... your mileage may vary.
